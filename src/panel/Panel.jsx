@@ -4,13 +4,14 @@ import JointCard from "./JointCard.jsx";
 import RegionGroup from "./RegionGroup.jsx";
 import MeasureSheet from "./MeasureSheet.jsx";
 import LearnTab from "./LearnTab.jsx";
+import QuizTab from "./QuizTab.jsx";
 import { exportPng, exportSvg } from "../utils/exportStage.js";
 import { PRESETS } from "../data/presets.js";
 import { REGIONS } from "../rig/rigs.js";
 import { relForMovement } from "../rig/describe.js";
 import { SOURCES } from "../data/norms.js";
 
-export default function Panel({ state, dispatch, rig, otherRig, descs, otherDescs, selectedJointId, canUndo, canRedo, sheet, onHover, svgRef }) {
+export default function Panel({ state, dispatch, rig, otherRig, descs, otherDescs, selectedJointId, canUndo, canRedo, sheet, onHover, svgRef, quiz }) {
   const { plane, tab, side, layer, fingerCurl, selected } = state;
   const [toast, setToast] = useState(null);
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 2200); return () => clearTimeout(t); }, [toast]);
@@ -66,7 +67,7 @@ export default function Panel({ state, dispatch, rig, otherRig, descs, otherDesc
         <button type="button" className="ap-btn" onClick={() => dispatch({ type: "RESET_PLANE" })}>Reset pose</button>
         <button type="button" className="ap-btn" onClick={copyLink}>Share</button>
       </div>
-      <Tabs tabs={[["pose", "Pose"], ["measure", "Measure"], ["learn", "Learn"]]} value={tab} onChange={(t) => dispatch({ type: "SET_TAB", tab: t })} />
+      <Tabs tabs={[["pose", "Pose"], ["measure", "Measure"], ["learn", "Learn"], ["quiz", "Quiz"]]} value={tab} onChange={(t) => dispatch({ type: "SET_TAB", tab: t })} />
 
       {tab === "pose" && (
         <>
@@ -96,6 +97,11 @@ export default function Panel({ state, dispatch, rig, otherRig, descs, otherDesc
             <button type="button" className="ap-btn" onClick={() => { if (svgRef.current) { exportSvg(svgRef.current); setToast("SVG saved"); } }}>Save SVG</button>
           </div>
         </>
+      )}
+
+      {tab === "quiz" && (
+        <QuizTab descs={descs} dispatch={dispatch} progress={quiz.progress} recordResult={quiz.record}
+          finishSession={quiz.finishSession} setInteraction={quiz.setInteraction} setQuizPick={quiz.setQuizPick} />
       )}
 
       {tab === "learn" && (

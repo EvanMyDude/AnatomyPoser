@@ -13,7 +13,9 @@ import { useDragInteraction } from "../hooks/useDragInteraction.js";
 
 const PLANE_TAG = { coronal: "Front view (coronal plane)", sagittal: "Side view (sagittal plane), facing right" };
 
-export default function Stage({ rig, plane, angles, pos, dir, descs, layer, activation, selected, selectedJointId, chains, fingerCurl, dispatch, isNarrow, svgRef: externalRef }) {
+const POSE = { kind: "pose" };
+
+export default function Stage({ rig, plane, angles, pos, dir, descs, layer, activation, selected, selectedJointId, chains, fingerCurl, dispatch, isNarrow, svgRef: externalRef, interaction = POSE, onQuizPick }) {
   const localRef = useRef(null);
   const svgRef = externalRef || localRef;
   const posRef = useRef(pos), anglesRef = useRef(angles);
@@ -32,6 +34,19 @@ export default function Stage({ rig, plane, angles, pos, dir, descs, layer, acti
     useDragInteraction({ svgRef, rig, chains, posRef, anglesRef, dispatch, isNarrow });
 
   const onHover = useCallback((f) => setHover(f), []);
+  const quiz = interaction.kind !== "pose";
+  const pickMode = interaction.kind === "pickMuscle";
+  const onlyJoint = interaction.kind === "poseJoint" ? interaction.joint : null;
+  const muscleDown = useCallback((inst, e) => {
+    if (pickMode) { e.stopPropagation(); if (onQuizPick) onQuizPick(inst.key); return; }
+    if (onlyJoint && inst.bone !== onlyJoint) { e.stopPropagation(); return; }
+    if (interaction.kind === "readonly") { e.stopPropagation(); return; }
+    onMuscleDown(inst, e);
+  }, [pickMode, onlyJoint, interaction.kind, onQuizPick, onMuscleDown]);
+  const boneDown = useCallback((id, e) => {
+    if (quiz && (pickMode || interaction.kind === "readonly" || id !== onlyJoint)) { e.stopPropagation(); return; }
+    onBoneDown(id, e);
+  }, [quiz, pickMode, interaction.kind, onlyJoint, onBoneDown]);
   const onJointDouble = useCallback((id) => dispatch({ type: "RESET_JOINT", id }), [dispatch]);
   const onHandleDouble = useCallback((h) => dispatch({ type: "RESET_CHAIN", ids: chains[h].chain }), [dispatch, chains]);
   const onJointKey = useCallback((id, e) => {
@@ -46,13 +61,13 @@ export default function Stage({ rig, plane, angles, pos, dir, descs, layer, acti
   // The chip follows the hover; selection is shown by highlight only (stage-local hover, panel shows selection).
   const focus = hover || (selected && selected.kind !== "joint" ? selected : null);
   const chip = useMemo(() => {
-    if (!focus) return null;
+    if (!focus || quiz) return null;
     if (focus.kind === "muscle") { const p = placed.find((x) => x.inst.key === focus.id); return p ? { at: { x: p.pl.cx, y: p.pl.cy }, text: p.inst.muscle.name } : null; }
     if (focus.id === "head") return { at: pos.head, text: BONE_NAME.head };
     if (!rig.byId[focus.id]) return null;
     const s = seg(rig, pos, dir, focus.id);
     return { at: { x: (s.ax + s.bx) / 2, y: (s.ay + s.by) / 2 }, text: BONE_NAME[focus.id] || focus.id };
-  }, [focus, placed, pos, dir, rig]);
+  }, [focus, quiz, placed, pos, dir, rig]);
 
   const gonio = useMemo(() => (selectedJointId ? goniometer(rig, angles, pos, dir, selectedJointId) : null), [rig, angles, pos, dir, selectedJointId]);
   const activeJoint = active && active.kind === "joint" ? active.id : null;
@@ -75,16 +90,16 @@ export default function Stage({ rig, plane, angles, pos, dir, descs, layer, acti
         {showMuscles && <MuscleLayer placed={placed} focus={focus} activation={activation} mode={layer} />}
         {showBones && <BoneLayer rig={rig} pos={pos} dir={dir} plane={plane} focus={focus && focus.kind === "bone" ? focus : null}
           selectedJointId={selectedJointId} fingerCurl={fingerCurl} />}
-        <HitLayer rig={rig} pos={pos} dir={dir} placed={placed} showBones={showBones} showMuscles={showMuscles}
-          hitExtra={sizes.hitExtra} hitMin={sizes.hitMin} onBoneDown={onBoneDown} onMuscleDown={onMuscleDown} onHover={onHover} />
+        {interaction.kind !== "readonly" && <HitLayer rig={rig} pos={pos} dir={dir} placed={placed} showBones={showBones} showMuscles={showMuscles}
+          hitExtra={sizes.hitExtra} hitMin={sizes.hitMin} onBoneDown={boneDown} onMuscleDown={muscleDown} onHover={onHover} />}
         <AngleOverlay g={gonio} desc={selectedJointId ? descs[selectedJointId] : null} />
         <LabelChip at={chip && chip.at} text={chip && chip.text} viewBox={vb} />
-        <Handles rig={rig} pos={pos} chains={chains} descs={descs} activeEffector={activeEffector} activeJoint={activeJoint}
-          selectedJointId={selectedJointId} sizes={sizes} onHandleDown={onHandleDown} onHandleDouble={onHandleDouble}
-          onJointDown={onJointDown} onJointDouble={onJointDouble} onJointKey={onJointKey} />
+        {!pickMode && interaction.kind !== "readonly" && <Handles rig={rig} pos={pos} chains={onlyJoint ? {} : chains} descs={descs} activeEffector={activeEffector} activeJoint={activeJoint}
+          selectedJointId={selectedJointId} sizes={sizes} onlyJoint={onlyJoint} onHandleDown={onHandleDown} onHandleDouble={onHandleDouble}
+          onJointDown={onJointDown} onJointDouble={onJointDouble} onJointKey={onJointKey} />}
       </svg>
       <div className="ap-stage-hint">
-        Drag a <b>ring</b> to pose a limb, or drag a <b>joint dot</b> or bone to turn one joint. Hold <span className="ap-kbd">Shift</span> to snap to 5°. Double-click to reset.
+        {quiz ? <>{pickMode ? "Tap a muscle to answer." : onlyJoint ? "Drag the highlighted joint dot, then press Check." : "Answer in the panel."}</> : <>Drag a <b>ring</b> to pose a limb, or drag a <b>joint dot</b> or bone to turn one joint. Hold <span className="ap-kbd">Shift</span> to snap to 5°. Double-click to reset.</>}
       </div>
     </div>
   );

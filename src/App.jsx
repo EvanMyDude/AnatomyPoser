@@ -8,6 +8,7 @@ import { useMediaQuery } from "./hooks/useMediaQuery.js";
 import { useUrlState } from "./hooks/useUrlState.js";
 import { useMeasurements } from "./hooks/useMeasurements.js";
 import { useKeyboardPosing } from "./hooks/useKeyboardPosing.js";
+import { useProgress } from "./hooks/useProgress.js";
 import Stage from "./stage/Stage.jsx";
 import Panel from "./panel/Panel.jsx";
 import Summary from "./panel/Summary.jsx";
@@ -27,6 +28,10 @@ export default function App() {
   const otherDescs = useMemo(() => describePose(otherRig, state.angles[otherPlane], otherPlane), [otherRig, state.angles, otherPlane]);
   const activation = useMemo(() => (layer === "bones" ? null : activationMap(descs, muscleInstances(plane))), [descs, plane, layer]);
   const svgRef = useRef(null);
+  const [interaction, setInteraction] = useState({ kind: "pose" });
+  const [quizPick, setQuizPick] = useState(null);
+  const { progress, record, finishSession } = useProgress();
+  const quiz = useMemo(() => ({ progress, record, finishSession, setInteraction, setQuizPick }), [progress, record, finishSession]);
   const selectedJointId = selected && (selected.kind === "joint" || selected.kind === "bone") && rig.byId[selected.id] && rig.byId[selected.id].ik ? selected.id : null;
 
   const onLoadMeasurements = useCallback((m) => sheet.replaceAll(m), [sheet.replaceAll]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -39,7 +44,7 @@ export default function App() {
 
   const panel = (
     <Panel state={state} dispatch={dispatch} rig={rig} otherRig={otherRig} descs={descs} otherDescs={otherDescs}
-      selectedJointId={selectedJointId} canUndo={canUndo(state)} canRedo={canRedo(state)} sheet={sheet} onHover={setPanelHover} svgRef={svgRef} />
+      selectedJointId={selectedJointId} canUndo={canUndo(state)} canRedo={canRedo(state)} sheet={sheet} onHover={setPanelHover} svgRef={svgRef} quiz={quiz} />
   );
 
   return (
@@ -47,7 +52,7 @@ export default function App() {
       <div className={"ap-root" + (isNarrow ? " is-narrow" : "")}>
         <Stage rig={rig} plane={plane} angles={angles} pos={pos} dir={dir} descs={descs} layer={layer} activation={activation}
           selected={stageSelected} selectedJointId={selectedJointId} chains={CHAINS[plane]} fingerCurl={fingerCurl}
-          dispatch={dispatch} isNarrow={isNarrow} svgRef={svgRef} />
+          dispatch={dispatch} isNarrow={isNarrow} svgRef={svgRef} interaction={interaction} onQuizPick={quizPick} />
         {isNarrow ? <BottomSheet>{panel}</BottomSheet> : panel}
       </div>
       <Summary rig={rig} pos={pos} dir={dir} plane={plane} fingerCurl={fingerCurl} rows={sheet.rows} />

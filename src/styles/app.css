@@ -217,6 +217,22 @@ button { cursor: pointer; }
 .ap-link:disabled { color: var(--faint); text-decoration: none; cursor: default; }
 .ap-index { margin-top: 10px; gap: 5px; font-size: 12.5px; }
 
+/* quiz */
+.ap-prompt { margin: 0; font-size: 15px; font-weight: 500; line-height: 1.4; }
+.ap-choices { display: flex; flex-direction: column; gap: 6px; }
+.ap-choices .ap-btn { text-align: left; }
+.ap-verdict { font-size: 16px; font-weight: 600; }
+.ap-verdict.is-right { color: var(--band-normal); }
+.ap-verdict.is-partial { color: var(--warn); }
+.ap-verdict.is-wrong { color: var(--band-severe); }
+.ap-plain li.is-right::before { content: "✓ "; color: var(--band-normal); }
+.ap-plain li.is-wrong::before { content: "✗ "; color: var(--band-severe); }
+.ap-progress { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.ap-progress div { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 6px 4px; text-align: center; display: flex; flex-direction: column; }
+.ap-progress b { font-size: 16px; font-weight: 600; }
+.ap-progress span { font-size: 10.5px; color: var(--faint); }
+.ap-quit { align-self: flex-start; font-size: 12px; color: var(--sub); text-decoration-color: var(--line); }
+
 /* phone bottom sheet */
 .ap-sheet-shell { position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; background: var(--panel); border-top: 1px solid var(--line);
   border-radius: 14px 14px 0 0; box-shadow: 0 -8px 24px rgba(0,0,0,.35); max-height: 42vh; display: flex; flex-direction: column;

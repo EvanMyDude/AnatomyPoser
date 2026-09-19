@@ -6,7 +6,7 @@ import React, { memo } from "react";
  *  - joint dots at every ik pivot: drag = rotate that joint only, click = select,
  *    double-click = reset, keyboard = nudge (role="slider")
  */
-function Handles({ rig, pos, chains, descs, activeEffector, activeJoint, selectedJointId, sizes,
+function Handles({ rig, pos, chains, descs, activeEffector, activeJoint, selectedJointId, sizes, onlyJoint,
                    onHandleDown, onHandleDouble, onJointDown, onJointDouble, onJointKey }) {
   return (
     <g data-hit="1">
@@ -14,7 +14,7 @@ function Handles({ rig, pos, chains, descs, activeEffector, activeJoint, selecte
         const p = rig.jointPos(pos, b.id);
         const d = descs[b.id];
         const sel = selectedJointId === b.id, act = activeJoint === b.id;
-        if (d.locked) return null;
+        if (d.locked || (onlyJoint && b.id !== onlyJoint)) return null;
         return (
           <g key={"j" + b.id} className="ap-joint-dot" tabIndex={0} role="slider"
             aria-label={`${d.label}, ${d.note}`} aria-valuemin={Math.round(d.relLo)} aria-valuemax={Math.round(d.relHi)}

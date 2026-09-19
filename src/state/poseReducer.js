@@ -109,8 +109,24 @@ function restore(s, from, to) {
 }
 
 // ---- reducer ----------------------------------------------------------------
+/** Quiz item setup: switch plane, pose from neutral + relative angles, set the
+ *  selection, and start a clean history. */
+function quizSetup(rigs, state, action) {
+  const plane = rigs[action.plane] ? action.plane : state.plane;
+  const rig = rigs[plane];
+  const angles = { ...rig.neutralAngles() };
+  for (const [id, rel] of Object.entries(action.rel || {})) {
+    if (angles[id] == null || !Number.isFinite(rel)) continue;
+    const [lo, hi] = rig.boundsOf(id);
+    angles[id] = clamp(angles[id] + rel, lo, hi);
+  }
+  return { ...state, plane, angles: { ...state.angles, [plane]: angles }, selected: action.selected || null, drag: null,
+    history: { past: [], future: [] }, lastNudge: null };
+}
+
 export function makeReducer(rigs) {
   return function reduce(s, a) {
+    if (a.type === "QUIZ_SETUP") return quizSetup(rigs, s, a);
     const rig = rigs[s.plane];
     switch (a.type) {
       // Switch rig; keep selection if its id exists there (R -> L into sagittal). Clears drag.
