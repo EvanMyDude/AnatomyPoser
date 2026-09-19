@@ -348,9 +348,15 @@ export default function AnatomyPoser() {
       <style>{CSS}</style>
 
       {/* ---------------- stage ---------------- */}
-      <div style={{ ...S.stage, ...(isNarrow ? { padding: "10px 10px 4px", minHeight: 0 } : {}) }}>
+      <div style={{ ...S.stage, ...(isNarrow
+          ? { padding: "10px 10px 4px", minHeight: 0 }
+          /* Wide layout: pin the stage to the viewport so the figure stays in view
+             while the (taller) joint panel scrolls with the page. */
+          : { position: "sticky", top: 0, alignSelf: "flex-start", height: "100vh", minHeight: 0 }) }}>
         <svg ref={svgRef} viewBox="0 0 420 640"
-          style={{ ...S.svg, ...(isNarrow ? { height: "56vh", width: "auto", maxWidth: "100%", maxHeight: "56vh" } : {}) }}
+          style={{ ...S.svg, ...(isNarrow
+            ? { height: "56vh", width: "auto", maxWidth: "100%", maxHeight: "56vh" }
+            : { height: "min(700px, calc(100vh - 72px))", width: "auto", maxWidth: "100%" }) }}
           onPointerMove={onMove} onPointerUp={endDrag} onPointerLeave={endDrag}
           onPointerDown={() => setSelected(null)}>
           <defs>
