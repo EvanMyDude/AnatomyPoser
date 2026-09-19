@@ -1,202 +1,15 @@
 import React, { useMemo, useRef, useState, useCallback, useEffect } from "react";
-
-/* =========================================================================
-   KINEMATICS  (rig-parameterized; verified in a Node harness before shipping)
-   Angles in DEGREES. SVG coords: +x right, +y down. "Up" = -90 deg.
-   Two rigs, each with REAL in-plane ROM for its plane:
-     CORONAL  = front view.  SAGITTAL = side view (facing +x), single-sided.
-   ========================================================================= */
-const D2R = Math.PI / 180, R2D = 180 / Math.PI;
-const PELVIS_FRAME = -90;
-const ANCHOR = { x: 210, y: 372 };
-
-const CORONAL_BONES = [
-  { id: "pelvis",  parent: null,      len: 0,   nW: -90, rom: [0, 0],     ik: false },
-  { id: "spineLo", parent: "pelvis",  len: 64,  nW: -90, rom: [-30, 30],  ik: true },
-  { id: "spineUp", parent: "spineLo", len: 58,  nW: -90, rom: [-20, 20],  ik: true },
-  { id: "neck",    parent: "spineUp", len: 28,  nW: -90, rom: [-45, 45],  ik: true },
-  { id: "head",    parent: "neck",    len: 30,  nW: -90, rom: [0, 0],     ik: false },
-  { id: "clavL",   parent: "spineUp", len: 60,  nW: 202, rom: [0, 0],     ik: false },
-  { id: "uarmL",   parent: "clavL",   len: 86,  nW: 93,  rom: [-50, 180], ik: true },
-  { id: "farmL",   parent: "uarmL",   len: 72,  nW: 93,  rom: [-145, 5],  ik: true },
-  { id: "handL",   parent: "farmL",   len: 38,  nW: 93,  rom: [-20, 30],  ik: true },
-  { id: "clavR",   parent: "spineUp", len: 60,  nW: -22, rom: [0, 0],     ik: false },
-  { id: "uarmR",   parent: "clavR",   len: 86,  nW: 87,  rom: [-180, 50], ik: true },
-  { id: "farmR",   parent: "uarmR",   len: 72,  nW: 87,  rom: [-5, 145],  ik: true },
-  { id: "handR",   parent: "farmR",   len: 38,  nW: 87,  rom: [-30, 20],  ik: true },
-  { id: "hipL",    parent: "pelvis",  len: 34,  nW: 150, rom: [0, 0],     ik: false },
-  { id: "thighL",  parent: "hipL",    len: 104, nW: 91,  rom: [-30, 45],  ik: true },
-  { id: "shinL",   parent: "thighL",  len: 96,  nW: 91,  rom: [-135, 0],  ik: true },
-  { id: "footL",   parent: "shinL",   len: 30,  nW: 155, rom: [0, 0],     ik: true },
-  { id: "hipR",    parent: "pelvis",  len: 34,  nW: 30,  rom: [0, 0],     ik: false },
-  { id: "thighR",  parent: "hipR",    len: 104, nW: 89,  rom: [-45, 30],  ik: true },
-  { id: "shinR",   parent: "thighR",  len: 96,  nW: 89,  rom: [0, 135],   ik: true },
-  { id: "footR",   parent: "shinR",   len: 30,  nW: 25,  rom: [0, 0],     ik: true },
-];
-const SAGITTAL_BONES = [
-  { id: "pelvis",  parent: null,      len: 0,   nW: -90, rom: [0, 0],     ik: false },
-  { id: "spineLo", parent: "pelvis",  len: 64,  nW: -90, rom: [-20, 45],  ik: true },
-  { id: "spineUp", parent: "spineLo", len: 58,  nW: -90, rom: [-10, 30],  ik: true },
-  { id: "neck",    parent: "spineUp", len: 28,  nW: -90, rom: [-60, 50],  ik: true },
-  { id: "head",    parent: "neck",    len: 30,  nW: -90, rom: [0, 0],     ik: false },
-  { id: "clavL",   parent: "spineUp", len: 23,  nW: -70, rom: [0, 0],     ik: false },
-  { id: "uarmL",   parent: "clavL",   len: 86,  nW: 90,  rom: [-180, 60], ik: true },
-  { id: "farmL",   parent: "uarmL",   len: 72,  nW: 90,  rom: [-145, 5],  ik: true },
-  { id: "handL",   parent: "farmL",   len: 38,  nW: 90,  rom: [-80, 70],  ik: true },
-  { id: "hipL",    parent: "pelvis",  len: 8,   nW: 90,  rom: [0, 0],     ik: false },
-  { id: "thighL",  parent: "hipL",    len: 104, nW: 90,  rom: [-120, 20], ik: true },
-  { id: "shinL",   parent: "thighL",  len: 96,  nW: 90,  rom: [0, 135],   ik: true },
-  { id: "footL",   parent: "shinL",   len: 30,  nW: 0,   rom: [-20, 45],  ik: true },
-];
-
-function rigOf(bones) {
-  const byId = Object.fromEntries(bones.map(b => [b.id, b]));
-  const neutralLocalOf = (id) => {
-    const b = byId[id];
-    if (b.parent == null) return 0;
-    const pW = b.parent === "pelvis" ? PELVIS_FRAME : byId[b.parent].nW;
-    return b.nW - pW;
-  };
-  const boundsOf = (id) => { const nl = neutralLocalOf(id), r = byId[id].rom; return [nl + r[0], nl + r[1]]; };
-  const neutralAngles = () => { const a = {}; for (const b of bones) a[b.id] = neutralLocalOf(b.id); return a; };
-  const fk = (angles) => {
-    const pos = {}, dir = {};
-    pos.pelvis = { ...ANCHOR }; dir.pelvis = PELVIS_FRAME;
-    for (const b of bones) {
-      if (b.parent == null) continue;
-      const wd = dir[b.parent] + angles[b.id]; dir[b.id] = wd;
-      const r = wd * D2R;
-      pos[b.id] = { x: pos[b.parent].x + b.len * Math.cos(r), y: pos[b.parent].y + b.len * Math.sin(r) };
-    }
-    return { pos, dir };
-  };
-  return { bones, byId, neutralLocalOf, boundsOf, neutralAngles, fk };
-}
-const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
-
-function solveCCD(rig, angles, chain, effectorId, target, iters = 10) {
-  const a = { ...angles };
-  for (let it = 0; it < iters; it++) {
-    for (let i = chain.length - 1; i >= 0; i--) {
-      const jid = chain[i];
-      const { pos } = rig.fk(a);
-      const jp = pos[jid], ep = pos[effectorId];
-      const v1x = ep.x - jp.x, v1y = ep.y - jp.y, v2x = target.x - jp.x, v2y = target.y - jp.y;
-      if (v1x * v1x + v1y * v1y < 1e-6 || v2x * v2x + v2y * v2y < 1e-6) continue;
-      const d = Math.atan2(v1x * v2y - v1y * v2x, v1x * v2x + v1y * v2y) * R2D;
-      const [lo, hi] = rig.boundsOf(jid);
-      a[jid] = clamp(a[jid] + d, lo, hi);
-    }
-  }
-  return a;
-}
-// single-joint incremental rotate (isolate): rotates ONLY boneId, clamped.
-function aimJoint(rig, angles, boneId, target) {
-  const a = { ...angles };
-  const { pos } = rig.fk(a);
-  const b = rig.byId[boneId];
-  const P = pos[b.parent], E = pos[boneId];
-  const v1x = E.x - P.x, v1y = E.y - P.y, v2x = target.x - P.x, v2y = target.y - P.y;
-  if (v1x * v1x + v1y * v1y < 1e-6 || v2x * v2x + v2y * v2y < 1e-6) return a;
-  const delta = Math.atan2(v1x * v2y - v1y * v2x, v1x * v2x + v1y * v2y) * R2D;
-  const [lo, hi] = rig.boundsOf(boneId);
-  a[boneId] = clamp(a[boneId] + delta, lo, hi);
-  return a;
-}
-
-const RIGS = { coronal: rigOf(CORONAL_BONES), sagittal: rigOf(SAGITTAL_BONES) };
-const CHAINS = {
-  coronal: {
-    head:  { chain: ["spineLo", "spineUp", "neck"], effector: "head",  label: "Head / spine" },
-    handL: { chain: ["uarmL", "farmL", "handL"],    effector: "handL", label: "Left hand" },
-    handR: { chain: ["uarmR", "farmR", "handR"],    effector: "handR", label: "Right hand" },
-    footL: { chain: ["thighL", "shinL", "footL"],   effector: "footL", label: "Left foot" },
-    footR: { chain: ["thighR", "shinR", "footR"],   effector: "footR", label: "Right foot" },
-  },
-  sagittal: {
-    head:  { chain: ["spineLo", "spineUp", "neck"], effector: "head",  label: "Head / spine" },
-    handL: { chain: ["uarmL", "farmL", "handL"],    effector: "handL", label: "Hand" },
-    footL: { chain: ["thighL", "shinL", "footL"],   effector: "footL", label: "Foot" },
-  },
-};
-
-/* =========================================================================
-   LABELS
-   ========================================================================= */
-const BONE_NAME = {
-  head: "Cranium", neck: "Cervical vertebrae", spineUp: "Thoracic vertebrae",
-  spineLo: "Lumbar vertebrae", clavL: "Clavicle", clavR: "Clavicle",
-  uarmL: "Humerus", uarmR: "Humerus", farmL: "Radius & ulna", farmR: "Radius & ulna",
-  handL: "Carpals & metacarpals", handR: "Carpals & metacarpals",
-  hipL: "Ilium (pelvis)", hipR: "Ilium (pelvis)", thighL: "Femur", thighR: "Femur",
-  shinL: "Tibia & fibula", shinR: "Tibia & fibula",
-  footL: "Tarsals & metatarsals", footR: "Tarsals & metatarsals",
-};
-const typeOf = (id) => {
-  if (id.startsWith("uarm")) return "shoulder";
-  if (id.startsWith("farm")) return "elbow";
-  if (id.startsWith("hand")) return "wrist";
-  if (id.startsWith("thigh")) return "hip";
-  if (id.startsWith("shin")) return "knee";
-  if (id.startsWith("foot")) return "ankle";
-  return id; // neck, spineLo, spineUp
-};
-const TYPE_NAME = {
-  neck: "Neck", spineLo: "Spine (lower)", spineUp: "Spine (upper)",
-  shoulder: "Shoulder", elbow: "Elbow", wrist: "Wrist", hip: "Hip", knee: "Knee", ankle: "Ankle",
-};
-const sideOf = (id) => (id.endsWith("L") && typeOf(id) !== id ? " (L)" : id.endsWith("R") ? " (R)" : "");
-const jointLabel = (id, plane) => TYPE_NAME[typeOf(id)] + (plane === "coronal" ? sideOf(id) : "");
-const NOTE = {
-  coronal: {
-    neck: "lateral flexion", spineLo: "lateral flexion", spineUp: "lateral flexion",
-    shoulder: "abduction / adduction", elbow: "flexion",
-    wrist: "radial / ulnar deviation", hip: "abduction / adduction",
-    knee: "flexion", ankle: "fixed — motion is sagittal",
-  },
-  sagittal: {
-    neck: "flexion / extension", spineLo: "flexion / extension", spineUp: "flexion / extension",
-    shoulder: "flexion / extension", elbow: "flexion (no hyperext.)",
-    wrist: "flexion / extension", hip: "flexion / extension",
-    knee: "flexion", ankle: "dorsi / plantarflexion",
-  },
-};
-const noteFor = (id, plane) => NOTE[plane][typeOf(id)];
-
-// muscles: cor + optional sag placement {t,off,len,wid}. Rendered only if the
-// plane placement exists AND the bone is in the active rig.
-const MUSCLES = [
-  { id: "scmL", bone: "neck", name: "Sternocleidomastoid", cor: { t: .5, off: -9, len: 26, wid: 8 }, sag: { t: .5, off: 7, len: 22, wid: 7 } },
-  { id: "scmR", bone: "neck", name: "Sternocleidomastoid", cor: { t: .5, off: 9, len: 26, wid: 8 } },
-  { id: "pecL", bone: "spineUp", name: "Pectoralis major", cor: { t: .25, off: -26, len: 40, wid: 26 }, sag: { t: .28, off: 20, len: 34, wid: 22 } },
-  { id: "pecR", bone: "spineUp", name: "Pectoralis major", cor: { t: .25, off: 26, len: 40, wid: 26 } },
-  { id: "abs", bone: "spineLo", name: "Rectus abdominis", cor: { t: .5, off: 0, len: 56, wid: 30 }, sag: { t: .5, off: 15, len: 34, wid: 24 } },
-  { id: "oblL", bone: "spineLo", name: "External oblique", cor: { t: .45, off: -26, len: 40, wid: 16 }, sag: { t: .5, off: 22, len: 34, wid: 16 } },
-  { id: "oblR", bone: "spineLo", name: "External oblique", cor: { t: .45, off: 26, len: 40, wid: 16 } },
-  { id: "deltL", bone: "uarmL", name: "Deltoid", cor: { t: .14, off: 0, len: 34, wid: 26 }, sag: { t: .14, off: 0, len: 32, wid: 26 } },
-  { id: "deltR", bone: "uarmR", name: "Deltoid", cor: { t: .14, off: 0, len: 34, wid: 26 } },
-  { id: "bicL", bone: "uarmL", name: "Biceps brachii", cor: { t: .55, off: 0, len: 44, wid: 18 }, sag: { t: .55, off: -9, len: 44, wid: 16 } },
-  { id: "bicR", bone: "uarmR", name: "Biceps brachii", cor: { t: .55, off: 0, len: 44, wid: 18 } },
-  { id: "brL", bone: "farmL", name: "Brachioradialis", cor: { t: .45, off: 0, len: 40, wid: 16 }, sag: { t: .45, off: -6, len: 40, wid: 14 } },
-  { id: "brR", bone: "farmR", name: "Brachioradialis", cor: { t: .45, off: 0, len: 40, wid: 16 } },
-  { id: "quadL", bone: "thighL", name: "Quadriceps femoris", cor: { t: .5, off: 0, len: 66, wid: 26 }, sag: { t: .5, off: -9, len: 60, wid: 24 } },
-  { id: "quadR", bone: "thighR", name: "Quadriceps femoris", cor: { t: .5, off: 0, len: 66, wid: 26 } },
-  { id: "tibL", bone: "shinL", name: "Tibialis anterior", cor: { t: .45, off: -6, len: 52, wid: 14 }, sag: { t: .45, off: -7, len: 50, wid: 14 } },
-  { id: "tibR", bone: "shinR", name: "Tibialis anterior", cor: { t: .45, off: 6, len: 52, wid: 14 } },
-];
-
-/* =========================================================================
-   THEME
-   ========================================================================= */
-const C = {
-  bg: "#0f1417", panel: "#151b1f", panel2: "#1b2329", line: "#2a353c",
-  ink: "#e8ede9", sub: "#8a9aa2", faint: "#5c6b72",
-  bone: "#e9e4d6", boneEdge: "#b8b09a", muscle: "#a6485a", muscleEdge: "#7d3444",
-  accent: "#38d0c8", accentDim: "#1e6f6b", warn: "#e8b04b", handle: "#38d0c8",
-};
+import { RIGS, CHAINS } from "./rig/rigs.js";
+import { D2R, clamp, solveCCD, aimJoint } from "./rig/kinematics.js";
+import { describePose, jointLabel } from "./rig/describe.js";
+import { BONE_NAME } from "./data/labels.js";
+import { MUSCLES } from "./data/muscles.js";
+import { C, S, CSS } from "./theme.js";
 
 /* =========================================================================
    COMPONENT
+   Kinematics, bone tables, norms, labels, muscles and theme live in ./rig,
+   ./data and ./theme.js. This file is the (still monolithic) view.
    ========================================================================= */
 export default function AnatomyPoser() {
   const [plane, setPlane] = useState("coronal");
@@ -218,13 +31,14 @@ export default function AnatomyPoser() {
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 720px)");
     const on = () => setIsNarrow(mq.matches);
-    on(); mq.addEventListener ? mq.addEventListener("change", on) : mq.addListener(on);
-    return () => { mq.removeEventListener ? mq.removeEventListener("change", on) : mq.removeListener(on); };
+    on(); mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
   }, []);
 
   const rig = RIGS[plane];
   const angles = anglesByView[plane];
   const { pos, dir } = useMemo(() => rig.fk(angles), [rig, angles]);
+  const descs = useMemo(() => describePose(rig, angles, plane), [rig, angles, plane]);
   const focus = hovered || selected;
   const showBones = layer === "bones" || layer === "both";
   const showMuscles = layer === "muscles" || layer === "both";
@@ -341,7 +155,7 @@ export default function AnatomyPoser() {
   };
 
   const poseHandles = mode === "pose" ? Object.keys(CHAINS[plane]) : [];
-  const isoBones = rig.bones.filter(b => b.ik);
+  const isoBones = rig.ikBones;
 
   return (
     <div style={{ ...S.root, flexDirection: isNarrow ? "column" : "row" }}>
@@ -513,26 +327,29 @@ export default function AnatomyPoser() {
           {focus
             ? <><span style={S.selKind}>{focus.kind === "muscle" ? "MUSCLE" : focus.kind === "joint" ? "JOINT" : "BONE"}</span>
                 <span style={S.selName}>{focus.name}</span>
-                {focus.kind === "joint" && <span style={S.selNote}>· {noteFor(focus.id, plane)}</span>}</>
+                {focus.kind === "joint" && <span style={S.selNote}>· {descs[focus.id].note}</span>}</>
             : <span style={S.selHint}>{mode === "isolate" ? "Grab a bone to select a joint." : "Hover or tap a bone or muscle."}</span>}
         </div>
 
         {/* focus-joint live readout */}
         <div style={{ ...S.readout, opacity: focusJointId ? 1 : 0.4 }}>
           {focusJointId ? (() => {
-            const [lo, hi] = rig.boundsOf(focusJointId), v = angles[focusJointId], nl = rig.neutralLocalOf(focusJointId);
-            const rel = v - nl, relLo = lo - nl, relHi = hi - nl;
-            const atLimit = Math.abs(v - lo) < 0.6 || Math.abs(v - hi) < 0.6;
-            const frac = clamp((v - lo) / (hi - lo || 1), 0, 1);
+            const d = descs[focusJointId];
             return <>
-              <div style={S.readHead}>{jointLabel(focusJointId, plane)} · {noteFor(focusJointId, plane)}</div>
+              <div style={S.readHead}>{d.label} · {d.note}</div>
               <div style={S.readBig}>
-                <span style={{ color: atLimit ? C.warn : C.ink }}>{rel >= 0 ? "+" : ""}{rel.toFixed(0)}°</span>
-                {atLimit && <span style={S.limitTag}>AT LIMIT</span>}
+                <span style={{ color: d.locked ? C.faint : d.atLimit ? C.warn : C.ink }}>
+                  {d.locked ? "—" : `${d.rel >= 0 ? "+" : ""}${d.rel.toFixed(0)}°`}
+                </span>
+                {d.atLimit && <span style={S.limitTag}>AT LIMIT</span>}
               </div>
-              <div style={S.bar}><div style={S.barFill} />
-                <div style={{ ...S.barMark, left: `${frac * 100}%`, background: atLimit ? C.warn : C.accent }} /></div>
-              <div style={S.jlims}><span>min {relLo.toFixed(0)}°</span><span>max {relHi.toFixed(0)}°</span></div>
+              {d.locked
+                ? <div style={S.lockRow}>fixed in {plane} plane</div>
+                : <>
+                    <div style={S.bar}><div style={S.barFill} />
+                      <div style={{ ...S.barMark, left: `${d.frac * 100}%`, background: d.atLimit ? C.warn : C.accent }} /></div>
+                    <div style={S.jlims}><span>min {d.relLo.toFixed(0)}°</span><span>max {d.relHi.toFixed(0)}°</span></div>
+                  </>}
             </>;
           })() : <div style={S.readHead}>{mode === "isolate" ? "Select a joint to inspect it" : "Drag a handle to inspect its chain"}</div>}
         </div>
@@ -542,10 +359,7 @@ export default function AnatomyPoser() {
           <div style={S.tableHead}><span>JOINT — {plane}</span><span>ANGLE</span></div>
           <div style={{ ...S.tableBody, ...(isNarrow ? { maxHeight: 280 } : {}) }} className="scroll">
             {isoBones.map((b) => {
-              const [lo, hi] = rig.boundsOf(b.id), v = angles[b.id], nl = rig.neutralLocalOf(b.id);
-              const rel = v - nl, relLo = lo - nl, relHi = hi - nl;
-              const atLimit = Math.abs(v - lo) < 0.6 || Math.abs(v - hi) < 0.6;
-              const locked = Math.abs(hi - lo) < 0.6;
+              const { rel, relLo, relHi, atLimit, locked } = descs[b.id];
               const active = isoJoint === b.id || activeChain.includes(b.id);
               return (
                 <div key={b.id} style={{ ...S.jrow, background: active ? C.panel2 : "transparent",
@@ -558,7 +372,7 @@ export default function AnatomyPoser() {
                       {locked ? "—" : `${rel >= 0 ? "+" : ""}${rel.toFixed(0)}°`}
                     </span>
                   </div>
-                  <div style={S.jnote}>{noteFor(b.id, plane)}</div>
+                  <div style={S.jnote}>{descs[b.id].note}</div>
                   {locked
                     ? <div style={S.lockRow}>fixed in {plane} plane</div>
                     : <>
@@ -609,99 +423,3 @@ function Seg({ options, value, onChange }) {
   </div>;
 }
 
-/* =========================================================================
-   STYLES
-   ========================================================================= */
-const S = {
-  root: { display: "flex", flexWrap: "wrap", minHeight: 560, height: "100%", background: C.bg, color: C.ink,
-    fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, sans-serif" },
-  stage: { flex: "1 1 380px", minWidth: 300, display: "flex", flexDirection: "column", alignItems: "center",
-    justifyContent: "center", padding: 16, position: "relative" },
-  svg: { width: "100%", maxWidth: 460, height: "auto", touchAction: "none", userSelect: "none", display: "block" },
-  stageHint: { marginTop: 8, fontSize: 12, color: C.faint, textAlign: "center", maxWidth: 390 },
-  planeTag: { fill: C.faint, fontSize: 9, letterSpacing: 1.4, fontFamily: "ui-monospace, Menlo, monospace" },
-  chipText: { fill: C.ink, fontSize: 11, textAnchor: "middle", fontWeight: 600, fontFamily: "system-ui, sans-serif" },
-
-  panel: { flex: "0 0 336px", width: 336, maxWidth: "100%", background: C.panel, borderLeft: `1px solid ${C.line}`,
-    padding: 18, display: "flex", flexDirection: "column", gap: 11, boxSizing: "border-box" },
-  head: { display: "flex", flexDirection: "column", gap: 2 },
-  kicker: { fontSize: 10, letterSpacing: 2, color: C.accent, fontFamily: "ui-monospace, Menlo, monospace" },
-  title: { margin: 0, fontSize: 22, fontWeight: 650, letterSpacing: -0.3 },
-
-  ctrlRow: { display: "flex", alignItems: "center", gap: 10 },
-  ctrlLabel: { fontSize: 10, letterSpacing: 1.4, color: C.faint, width: 42, flexShrink: 0,
-    fontFamily: "ui-monospace, Menlo, monospace" },
-  seg: { display: "flex", gap: 4, background: C.panel2, padding: 4, borderRadius: 8, flex: 1 },
-
-  selBox: { display: "flex", alignItems: "baseline", gap: 7, minHeight: 22, padding: "6px 10px",
-    background: C.panel2, borderRadius: 8, border: `1px solid ${C.line}`, flexWrap: "wrap" },
-  selKind: { fontSize: 9, letterSpacing: 1.5, color: C.accent, fontFamily: "ui-monospace, Menlo, monospace" },
-  selName: { fontSize: 14, fontWeight: 600 }, selNote: { fontSize: 11, color: C.sub },
-  selHint: { fontSize: 12, color: C.faint },
-
-  readout: { background: C.panel2, borderRadius: 8, padding: "8px 10px", border: `1px solid ${C.line}`, transition: "opacity .15s" },
-  readHead: { fontSize: 11, color: C.sub, fontFamily: "ui-monospace, Menlo, monospace" },
-  readBig: { display: "flex", alignItems: "center", gap: 8, fontSize: 26, fontWeight: 700, margin: "2px 0 6px",
-    fontFamily: "ui-monospace, Menlo, monospace" },
-  limitTag: { fontSize: 9, letterSpacing: 1, color: C.warn, border: `1px solid ${C.warn}`, borderRadius: 3, padding: "1px 5px" },
-
-  tableWrap: { display: "flex", flexDirection: "column", minHeight: 90, flex: "1 1 auto" },
-  tableHead: { display: "flex", justifyContent: "space-between", fontSize: 9, letterSpacing: 1.2, color: C.faint,
-    padding: "0 2px 6px", fontFamily: "ui-monospace, Menlo, monospace", textTransform: "uppercase" },
-  tableBody: { overflowY: "auto", display: "flex", flexDirection: "column", gap: 2, paddingRight: 2 },
-  jrow: { padding: "6px 8px", borderRadius: 6 },
-  jtop: { display: "flex", justifyContent: "space-between", alignItems: "baseline" },
-  jname: { fontSize: 13, fontWeight: 600 },
-  jang: { fontSize: 13, fontFamily: "ui-monospace, Menlo, monospace", fontWeight: 600 },
-  jnote: { fontSize: 10.5, color: C.faint, marginTop: 1 },
-  bar: { position: "relative", height: 4, background: "#0c1114", borderRadius: 3, marginTop: 6, border: `1px solid ${C.line}` },
-  barFill: { position: "absolute", inset: 0, background: C.accentDim, opacity: 0.25, borderRadius: 3 },
-  barMark: { position: "absolute", top: -3, width: 3, height: 8, borderRadius: 2, transform: "translateX(-50%)" },
-  sliderWrap: { position: "relative", height: 18, marginTop: 6, display: "flex", alignItems: "center" },
-  track: { position: "absolute", left: 0, right: 0, top: "50%", height: 4, transform: "translateY(-50%)",
-    background: "#0c1114", border: `1px solid ${C.line}`, borderRadius: 3, pointerEvents: "none" },
-  neutralTick: { position: "absolute", top: 2, width: 2, height: 14, transform: "translateX(-50%)",
-    background: C.sub, opacity: 0.55, borderRadius: 1, pointerEvents: "none" },
-  lockRow: { fontSize: 10.5, color: C.faint, fontStyle: "italic", marginTop: 6, fontFamily: "ui-monospace, Menlo, monospace" },
-  jlims: { display: "flex", justifyContent: "space-between", fontSize: 9.5, color: C.faint, marginTop: 3,
-    fontFamily: "ui-monospace, Menlo, monospace" },
-
-  finger: { background: C.panel2, borderRadius: 8, padding: "8px 10px", border: `1px solid ${C.line}` },
-  fingerTop: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 },
-  foot: { fontSize: 10.5, color: C.faint, lineHeight: 1.5, borderTop: `1px solid ${C.line}`, paddingTop: 10 },
-};
-
-const CSS = `
-  .segbtn { flex:1; border:none; background:transparent; color:${C.sub}; font-size:12.5px; padding:7px 4px;
-    border-radius:5px; cursor:pointer; font-weight:600; font-family:inherit; }
-  .segbtn[data-on="true"] { background:${C.accent}; color:#08110f; }
-  .segbtn:focus-visible { outline:2px solid ${C.accent}; outline-offset:1px; }
-  .reset { border:1px solid ${C.line}; background:${C.panel2}; color:${C.ink}; font-size:13px; padding:9px;
-    border-radius:8px; cursor:pointer; font-weight:600; font-family:inherit; }
-  .reset:hover { border-color:${C.accent}; color:${C.accent}; }
-  .reset:focus-visible { outline:2px solid ${C.accent}; outline-offset:1px; }
-  .scroll::-webkit-scrollbar { width:8px; }
-  .scroll::-webkit-scrollbar-thumb { background:${C.line}; border-radius:4px; }
-  .slider { width:100%; -webkit-appearance:none; height:4px; border-radius:3px; background:${C.accentDim}; outline:none; }
-  .slider::-webkit-slider-thumb { -webkit-appearance:none; width:16px; height:16px; border-radius:50%; background:${C.accent}; cursor:pointer; border:2px solid ${C.panel}; }
-  .slider::-moz-range-thumb { width:14px; height:14px; border-radius:50%; background:${C.accent}; cursor:pointer; border:2px solid ${C.panel}; }
-  .jslider { position:relative; width:100%; margin:0; -webkit-appearance:none; appearance:none; background:transparent; height:18px; cursor:pointer; z-index:1; }
-  .jslider:focus-visible { outline:2px solid ${C.accent}; outline-offset:2px; border-radius:4px; }
-  .jslider::-webkit-slider-runnable-track { height:4px; background:transparent; }
-  .jslider::-moz-range-track { height:4px; background:transparent; }
-  .jslider::-webkit-slider-thumb { -webkit-appearance:none; width:14px; height:14px; margin-top:-5px; border-radius:50%; background:${C.accent}; border:2px solid ${C.panel}; cursor:pointer; }
-  .jslider::-moz-range-thumb { width:12px; height:12px; border-radius:50%; background:${C.accent}; border:2px solid ${C.panel}; cursor:pointer; }
-  .jslider[data-lim="1"]::-webkit-slider-thumb { background:${C.warn}; }
-  .jslider[data-lim="1"]::-moz-range-thumb { background:${C.warn}; }
-  @media (prefers-reduced-motion: reduce) { * { transition:none !important; } }
-  @media (max-width: 720px) {
-    .segbtn { padding:11px 4px; font-size:14px; }
-    .reset { padding:13px; font-size:14px; }
-    .slider { height:6px; }
-    .slider::-webkit-slider-thumb { width:22px; height:22px; }
-    .slider::-moz-range-thumb { width:20px; height:20px; }
-    .jslider { height:26px; }
-    .jslider::-webkit-slider-thumb { width:20px; height:20px; margin-top:-8px; }
-    .jslider::-moz-range-thumb { width:18px; height:18px; }
-  }
-`;

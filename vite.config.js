@@ -7,4 +7,5 @@ import { defineConfig } from 'vite'
 export default defineConfig({
   base: '/AnatomyPoser/',
   plugins: [react()],
+  test: { environment: 'node', include: ['src/**/*.test.js'] },
 })
