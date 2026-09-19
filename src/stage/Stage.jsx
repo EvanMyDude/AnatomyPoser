@@ -1,8 +1,8 @@
 import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { fitViewBox, goniometer } from "../rig/kinematics.js";
-import { MUSCLES } from "../data/muscles.js";
+import { muscleInstances } from "../data/muscles.js";
 import { BONE_NAME } from "../data/labels.js";
-import { placeMuscles, seg, VIEW } from "./geometry.js";
+import { placeInstances, seg, VIEW } from "./geometry.js";
 import BoneLayer from "./BoneLayer.jsx";
 import MuscleLayer from "./MuscleLayer.jsx";
 import HitLayer from "./HitLayer.jsx";
@@ -13,14 +13,16 @@ import { useDragInteraction } from "../hooks/useDragInteraction.js";
 
 const PLANE_TAG = { coronal: "Front view (coronal plane)", sagittal: "Side view (sagittal plane), facing right" };
 
-export default function Stage({ rig, plane, angles, pos, dir, descs, layer, selected, selectedJointId, chains, fingerCurl, dispatch, isNarrow }) {
-  const svgRef = useRef(null);
+export default function Stage({ rig, plane, angles, pos, dir, descs, layer, activation, selected, selectedJointId, chains, fingerCurl, dispatch, isNarrow, svgRef: externalRef }) {
+  const localRef = useRef(null);
+  const svgRef = externalRef || localRef;
   const posRef = useRef(pos), anglesRef = useRef(angles);
   useLayoutEffect(() => { posRef.current = pos; anglesRef.current = angles; }, [pos, angles]);
   const [hover, setHover] = useState(null);
 
   const showBones = layer !== "muscles", showMuscles = layer !== "bones";
-  const placed = useMemo(() => (showMuscles ? placeMuscles(rig, pos, dir, plane, MUSCLES) : []), [rig, pos, dir, plane, showMuscles]);
+  const instances = useMemo(() => muscleInstances(plane), [plane]);
+  const placed = useMemo(() => (showMuscles ? placeInstances(rig, pos, dir, instances) : []), [rig, pos, dir, instances, showMuscles]);
   const vb = useMemo(() => fitViewBox(pos, VIEW, 30), [pos]);
   const sizes = useMemo(() => (isNarrow
     ? { handleHit: 24, handle: 10, handleActive: 13, jointHit: 22, hitExtra: 18, hitMin: 30 }
@@ -39,13 +41,13 @@ export default function Stage({ rig, plane, angles, pos, dir, descs, layer, sele
     else if (e.key === "ArrowLeft" || e.key === "ArrowDown") nudge(-step);
     else if (e.key === "Enter" || e.key === " ") { e.preventDefault(); dispatch({ type: "SELECT", selected: { kind: "joint", id } }); }
   }, [dispatch]);
-  const onBackground = useCallback((e) => { if (e.target === svgRef.current) dispatch({ type: "SELECT", selected: null }); }, [dispatch]);
+  const onBackground = (e) => { if (e.target === svgRef.current) dispatch({ type: "SELECT", selected: null }); };
 
   // The chip follows the hover; selection is shown by highlight only (stage-local hover, panel shows selection).
   const focus = hover || (selected && selected.kind !== "joint" ? selected : null);
   const chip = useMemo(() => {
     if (!focus) return null;
-    if (focus.kind === "muscle") { const p = placed.find((x) => x.m.id === focus.id); return p ? { at: { x: p.pl.cx, y: p.pl.cy }, text: p.m.name } : null; }
+    if (focus.kind === "muscle") { const p = placed.find((x) => x.inst.key === focus.id); return p ? { at: { x: p.pl.cx, y: p.pl.cy }, text: p.inst.muscle.name } : null; }
     if (focus.id === "head") return { at: pos.head, text: BONE_NAME.head };
     if (!rig.byId[focus.id]) return null;
     const s = seg(rig, pos, dir, focus.id);
@@ -70,7 +72,7 @@ export default function Stage({ rig, plane, angles, pos, dir, descs, layer, sele
         <line x1={24} y1={VIEW.groundY} x2={396} y2={VIEW.groundY} stroke="var(--line)" strokeWidth="1" opacity="0.7" />
         <text x={vb.x + 30} y={vb.y + 30} className="ap-plane-tag">{PLANE_TAG[plane]}</text>
 
-        {showMuscles && <MuscleLayer placed={placed} focus={focus} dim={layer === "both"} />}
+        {showMuscles && <MuscleLayer placed={placed} focus={focus} activation={activation} mode={layer} />}
         {showBones && <BoneLayer rig={rig} pos={pos} dir={dir} plane={plane} focus={focus && focus.kind === "bone" ? focus : null}
           selectedJointId={selectedJointId} fingerCurl={fingerCurl} />}
         <HitLayer rig={rig} pos={pos} dir={dir} placed={placed} showBones={showBones} showMuscles={showMuscles}

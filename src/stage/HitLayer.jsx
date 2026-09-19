@@ -3,9 +3,9 @@ import { seg, boneWidth, VIEW } from "./geometry.js";
 
 /**
  * Transparent hit targets, drawn above the visuals. Bones (drag = rotate the
- * bone's own joint, click = select bone), the head, and muscles (drag = rotate
- * the bone they sit on, click = select muscle). Marked data-hit so exports can
- * strip them.
+ * bone's own joint, click = select bone), the head, and muscle instances (drag
+ * = rotate the bone they sit on, click = select muscle). Marked data-hit so
+ * exports can strip them.
  */
 function HitLayer({ rig, pos, dir, placed, showBones, showMuscles, hitExtra, hitMin, onBoneDown, onMuscleDown, onHover }) {
   return (
@@ -26,12 +26,12 @@ function HitLayer({ rig, pos, dir, placed, showBones, showMuscles, hitExtra, hit
           onPointerEnter={() => onHover({ kind: "bone", id: "head" })} onPointerLeave={() => onHover(null)}
           onPointerDown={(e) => onBoneDown("head", e)} />
       )}
-      {showMuscles && placed.map(({ m, pl }) => (
-        <ellipse key={"mh" + m.id} cx={pl.cx} cy={pl.cy} rx={pl.rx} ry={pl.ry}
+      {showMuscles && placed.map(({ inst, pl }) => (
+        <ellipse key={"mh" + inst.key} cx={pl.cx} cy={pl.cy} rx={pl.rx} ry={pl.ry}
           transform={`rotate(${pl.ang} ${pl.cx} ${pl.cy})`} fill="transparent"
-          className={"ap-hit" + (rig.byId[m.bone].ik ? " is-grab" : "")}
-          onPointerEnter={() => onHover({ kind: "muscle", id: m.id })} onPointerLeave={() => onHover(null)}
-          onPointerDown={(e) => onMuscleDown(m, e)} />
+          className={"ap-hit" + (rig.byId[inst.bone].ik ? " is-grab" : "")}
+          onPointerEnter={() => onHover({ kind: "muscle", id: inst.key })} onPointerLeave={() => onHover(null)}
+          onPointerDown={(e) => onMuscleDown(inst, e)} />
       ))}
     </g>
   );

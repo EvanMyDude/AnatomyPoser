@@ -3,13 +3,15 @@ import { Seg, Tabs } from "./ui.jsx";
 import JointCard from "./JointCard.jsx";
 import RegionGroup from "./RegionGroup.jsx";
 import MeasureSheet from "./MeasureSheet.jsx";
+import LearnTab from "./LearnTab.jsx";
+import { exportPng, exportSvg } from "../utils/exportStage.js";
 import { PRESETS } from "../data/presets.js";
 import { REGIONS } from "../rig/rigs.js";
 import { relForMovement } from "../rig/describe.js";
 import { SOURCES } from "../data/norms.js";
 
-export default function Panel({ state, dispatch, rig, otherRig, descs, otherDescs, selectedJointId, canUndo, canRedo, sheet, onHover }) {
-  const { plane, tab, side, layer, fingerCurl } = state;
+export default function Panel({ state, dispatch, rig, otherRig, descs, otherDescs, selectedJointId, canUndo, canRedo, sheet, onHover, svgRef }) {
+  const { plane, tab, side, layer, fingerCurl, selected } = state;
   const [toast, setToast] = useState(null);
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 2200); return () => clearTimeout(t); }, [toast]);
 
@@ -56,7 +58,7 @@ export default function Panel({ state, dispatch, rig, otherRig, descs, otherDesc
       </div>
       <div className="ap-toolbar">
         <Seg label="View" value={plane} onChange={(p) => dispatch({ type: "SET_PLANE", plane: p })} options={[["coronal", "Front"], ["sagittal", "Side"]]} />
-        <Seg label="Layer" value={layer} onChange={(l) => dispatch({ type: "SET_LAYER", layer: l })} options={[["bones", "Bones"], ["muscles", "Muscles"], ["both", "Both"]]} />
+        <Seg label="Layer" value={layer} onChange={(l) => dispatch({ type: "SET_LAYER", layer: l })} options={[["bones", "Bones"], ["muscles", "Muscles"], ["both", "Both"], ["activation", "Working"]]} />
       </div>
       <div className="ap-actions">
         <button type="button" className="ap-btn" disabled={!canUndo} onClick={() => dispatch({ type: "UNDO" })} title="Undo (⌘Z)">Undo</button>
@@ -64,7 +66,7 @@ export default function Panel({ state, dispatch, rig, otherRig, descs, otherDesc
         <button type="button" className="ap-btn" onClick={() => dispatch({ type: "RESET_PLANE" })}>Reset pose</button>
         <button type="button" className="ap-btn" onClick={copyLink}>Share</button>
       </div>
-      <Tabs tabs={[["pose", "Pose"], ["measure", "Measure"]]} value={tab} onChange={(t) => dispatch({ type: "SET_TAB", tab: t })} />
+      <Tabs tabs={[["pose", "Pose"], ["measure", "Measure"], ["learn", "Learn"]]} value={tab} onChange={(t) => dispatch({ type: "SET_TAB", tab: t })} />
 
       {tab === "pose" && (
         <>
@@ -89,7 +91,16 @@ export default function Panel({ state, dispatch, rig, otherRig, descs, otherDesc
         <>
           {card}
           <MeasureSheet rows={sheet.rows} onRemove={sheet.remove} onClear={sheet.clear} onCopyLink={copyLink} onPrint={() => window.print()} />
+          <div className="ap-sheet-actions">
+            <button type="button" className="ap-btn" onClick={() => svgRef.current && exportPng(svgRef.current).then(() => setToast("PNG saved")).catch(() => setToast("Export failed"))}>Save PNG</button>
+            <button type="button" className="ap-btn" onClick={() => { if (svgRef.current) { exportSvg(svgRef.current); setToast("SVG saved"); } }}>Save SVG</button>
+          </div>
         </>
+      )}
+
+      {tab === "learn" && (
+        <LearnTab plane={plane} selected={selected} desc={desc} onHover={onHover}
+          onSelectMuscle={(key) => dispatch({ type: "SELECT", selected: { kind: "muscle", id: key } })} />
       )}
 
       <div className="ap-foot">

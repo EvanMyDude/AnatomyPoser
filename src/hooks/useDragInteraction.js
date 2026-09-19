@@ -51,10 +51,10 @@ export function useDragInteraction({ svgRef, rig, chains, posRef, anglesRef, dis
     else { e.stopPropagation(); dispatch({ type: "SELECT", selected: { kind: "bone", id } }); }
   }, [begin, rig, posRef, dispatch]);
 
-  const onMuscleDown = useCallback((m, e) => {
-    const b = rig.byId[m.bone];
-    if (b && b.ik) begin("joint", m.bone, e, { pivot: rig.jointPos(posRef.current, m.bone), selectKind: "muscle", selectId: m.id, refFromStart: true });
-    else { e.stopPropagation(); dispatch({ type: "SELECT", selected: { kind: "muscle", id: m.id } }); }
+  const onMuscleDown = useCallback((inst, e) => {
+    const b = rig.byId[inst.bone];
+    if (b && b.ik) begin("joint", inst.bone, e, { pivot: rig.jointPos(posRef.current, inst.bone), selectKind: "muscle", selectId: inst.key, refFromStart: true });
+    else { e.stopPropagation(); dispatch({ type: "SELECT", selected: { kind: "muscle", id: inst.key } }); }
   }, [begin, rig, posRef, dispatch]);
 
   useEffect(() => {
